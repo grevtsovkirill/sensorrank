@@ -7,15 +7,13 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report,confusion_matrix, roc_auc_score,  auc, plot_confusion_matrix
 from sklearn.inspection import permutation_importance
+from eli5.sklearn import PermutationImportance
+
 import xgboost
 from xgboost import plot_importance
 
-from eli5.sklearn import PermutationImportance
 
 debug = False
-def data_prep():
-    return 1
-
 
 def dropcol_importances(model, X_train, y_train, X_test, y_test):
     model_ = model
@@ -41,19 +39,22 @@ def perf_out(imp, cols,name):
     print(name)
     I = pd.DataFrame(
         data={'Feature':cols,
-            'Importance':imp})
+            name:imp})
     I = I.set_index('Feature')
-    I = I.sort_values('Importance', ascending=False)
+    I = I.sort_values(name, ascending=False)
     return I
 
 def main():
     data_path = './'
     filename = 'task_data.csv'
+    
     data = pd.read_csv(data_path+filename, index_col='sample index')
     y_tot1 = data.pop('class_label')
     y_tot = y_tot1.replace(-1, 0)
     feat_cols = data.columns
     X_train, X_test, y_train, y_test = train_test_split(data, y_tot, test_size = 0.33, random_state=42)
+
+
     model = xgboost.XGBClassifier(objective='binary:logistic')
     model.fit(X_train,y_train)
 
@@ -86,31 +87,40 @@ def main():
     perm = PermutationImportance(model, random_state=41).fit(X_test,y_test)
     imppereli5 = perf_out(perm.feature_importances_,X_test.columns,"Permutation Importance ELI5")
     print(imppereli5)
-    
-        
+
+    df_tot = pd.concat([impdrop,impper,imppereli5],axis=1,sort=False)
+
     if debug==True:
         plot_importance(model)
-        #plt.show()
         plt.savefig("Plots/xgb_importance.png", transparent=True)   
 
     imp_types = ["weight","gain","cover","total_gain","total_cover"]
     for i in range(len(imp_types)):
         imp_vals = model.get_booster().get_score(importance_type=imp_types[i])
         imp_vals = sorted(imp_vals.items(), key=lambda x: x[1], reverse=True)
-        dftype = pd.DataFrame(imp_vals,columns=['Feature','Importance'])
+        dftype = pd.DataFrame(imp_vals,columns=['Feature',imp_types[i]])
         cur_feats = dftype['Feature'].values
         diff = set(feat_cols)-set(cur_feats)
         if len(diff)!=0:
             null_imp = [0]*len(diff)
             miss_features = zip(diff, null_imp)
-            dftype = dftype.append(pd.DataFrame(miss_features,columns=['Feature','Importance']), ignore_index=True)
+            dftype = dftype.append(pd.DataFrame(miss_features,columns=['Feature',imp_types[i]]), ignore_index=True)
 
         dftype = dftype.set_index('Feature') 
-        #print(imp_types[i], " ", imp_vals)
-        print("Model-based ranking: ",imp_types[i])
+        df_tot = pd.concat([df_tot,dftype],axis=1,sort=False)
         print(dftype)
-        if imp_types[i]=="total_gain": dftype.to_csv("rank.csv")
-    
-    
+        if imp_types[i]=="total_gain":
+            dftype.to_csv("rank_"+imp_types[i]+".csv")
+        if debug == True:
+            dftype.plot.barh(y=imp_types[i], label=imp_types[i]).invert_yaxis()
+            plt.savefig("Plots/rank_"+imp_types[i]+".png", transparent=True)   
+
+    df_tot = df_tot.sort_values('total_gain', ascending=False)
+    df_tot = df_tot/df_tot.max()
+    print(df_tot)
+    if debug == True:
+        df_tot.plot.barh().invert_yaxis()
+        plt.savefig("Plots/ranks.png", transparent=True)   
+            
 if __name__ == "__main__":
     main()
