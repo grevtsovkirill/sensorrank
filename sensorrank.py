@@ -52,7 +52,7 @@ def main():
     data = pd.read_csv(data_path+filename, index_col='sample index')
     y_tot1 = data.pop('class_label')
     y_tot = y_tot1.replace(-1, 0)
-
+    feat_cols = data.columns
     X_train, X_test, y_train, y_test = train_test_split(data, y_tot, test_size = 0.33, random_state=42)
     model = xgboost.XGBClassifier(objective='binary:logistic')
     model.fit(X_train,y_train)
@@ -93,16 +93,18 @@ def main():
         #plt.show()
         plt.savefig("Plots/xgb_importance.png", transparent=True)   
 
-
-    
-    
-    print("get_fscore = ", model.get_booster().get_fscore() ) 
     imp_types = ["weight","gain","cover","total_gain","total_cover"]
-    print("score ")
     for i in range(len(imp_types)):
         imp_vals = model.get_booster().get_score(importance_type=imp_types[i])
         imp_vals = sorted(imp_vals.items(), key=lambda x: x[1], reverse=True)
         dftype = pd.DataFrame(imp_vals,columns=['Feature','Importance'])
+        cur_feats = dftype['Feature'].values
+        diff = set(feat_cols)-set(cur_feats)
+        if len(diff)!=0:
+            null_imp = [0]*len(diff)
+            miss_features = zip(diff, null_imp)
+            dftype = dftype.append(pd.DataFrame(miss_features,columns=['Feature','Importance']), ignore_index=True)
+
         dftype = dftype.set_index('Feature') 
         #print(imp_types[i], " ", imp_vals)
         print("Model-based ranking: ",imp_types[i])
